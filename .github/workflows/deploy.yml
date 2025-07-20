@@ -259,13 +259,7 @@ jobs:
       run: |
         mkdir -p docs-build
         
-        # Set variables for easier template substitution
-        REPO_NAME="${{ github.repository }}"
-        COMMIT_SHA="${{ github.sha }}"
-        REF_NAME="${{ github.ref_name }}"
-        EVENT_NAME="${{ github.event_name }}"
-        
-        # Create deployment documentation
+        # Create a simple deployment guide
         cat > docs-build/index.html << 'EOF'
         <!DOCTYPE html>
         <html>
@@ -277,111 +271,44 @@ jobs:
                 .container { background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; }
                 code { background: #eee; padding: 2px 4px; border-radius: 3px; }
                 pre { background: #333; color: #fff; padding: 15px; border-radius: 5px; overflow-x: auto; }
-                .status { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
-                .success { background: #4caf50; color: white; }
-                .info { background: #2196f3; color: white; }
             </style>
         </head>
         <body>
-            <h1>🎯 WordPecker App - 部署指南</h1>
+            <h1>WordPecker App - Deployment Guide</h1>
             
             <div class="container">
-                <h2>📦 容器镜像</h2>
-                <p>最新构建的镜像已推送到 GitHub Container Registry:</p>
+                <h2>Quick Start</h2>
+                <p>The application has been built and pushed to GitHub Container Registry.</p>
+                
+                <h3>Using Docker Compose</h3>
+                <pre><code>curl -O https://raw.githubusercontent.com/REPO_NAME/main/docker-compose.prod.yml
+echo "GITHUB_REPOSITORY=REPO_NAME" > .env
+echo "OPENAI_API_KEY=your_key" >> .env
+docker-compose -f docker-compose.prod.yml up -d</code></pre>
+                
+                <h3>Access Points</h3>
                 <ul>
-                    <li><code>ghcr.io/REPO_PLACEHOLDER-backend:latest</code></li>
-                    <li><code>ghcr.io/REPO_PLACEHOLDER-frontend:latest</code></li>
-                    <li><code>ghcr.io/REPO_PLACEHOLDER-full:latest</code></li>
-                </ul>
-                <span class="status success">BUILD ID: COMMIT_PLACEHOLDER</span>
-                <span class="status info">DATE: $(date)</span>
-            </div>
-            
-            <div class="container">
-                <h2>🚀 快速部署</h2>
-                <h3>方式1: 使用独立容器</h3>
-                <pre><code># 拉取镜像
-docker pull ghcr.io/REPO_PLACEHOLDER-backend:latest
-docker pull ghcr.io/REPO_PLACEHOLDER-frontend:latest
-
-# 创建网络
-docker network create wordpecker-net
-
-# 启动 MongoDB
-docker run -d --name wordpecker-mongo \
-  --network wordpecker-net \
-  -e MONGO_INITDB_ROOT_USERNAME=admin \
-  -e MONGO_INITDB_ROOT_PASSWORD=password \
-  -e MONGO_INITDB_DATABASE=wordpecker \
-  -p 27017:27017 \
-  mongo:7.0
-
-# 启动后端 (需要设置环境变量)
-docker run -d --name wordpecker-backend \
-  --network wordpecker-net \
-  -e NODE_ENV=production \
-  -e MONGODB_URL=mongodb://admin:password@wordpecker-mongo:27017/wordpecker?authSource=admin \
-  -e OPENAI_API_KEY=your_openai_api_key \
-  -p 3001:3000 \
-  ghcr.io/REPO_PLACEHOLDER-backend:latest
-
-# 启动前端
-docker run -d --name wordpecker-frontend \
-  --network wordpecker-net \
-  -e VITE_API_URL=http://localhost:3001 \
-  -p 3000:3000 \
-  ghcr.io/REPO_PLACEHOLDER-frontend:latest</code></pre>
-
-                <h3>方式2: 使用 Docker Compose</h3>
-                <pre><code># 下载 docker-compose.yml
-curl -O https://raw.githubusercontent.com/REPO_PLACEHOLDER/main/docker-compose.yml
-
-# 设置环境变量
-echo "OPENAI_API_KEY=your_openai_api_key" > .env
-echo "ELEVENLABS_API_KEY=your_elevenlabs_api_key" >> .env
-echo "PEXELS_API_KEY=your_pexels_api_key" >> .env
-
-# 启动应用
-docker-compose up -d</code></pre>
-            </div>
-            
-            <div class="container">
-                <h2>🌐 访问应用</h2>
-                <ul>
-                    <li><strong>前端应用:</strong> <a href="http://localhost:3000">http://localhost:3000</a></li>
-                    <li><strong>后端 API:</strong> <a href="http://localhost:3001">http://localhost:3001</a></li>
-                    <li><strong>MongoDB:</strong> localhost:27017 (admin/password)</li>
+                    <li>Frontend: http://localhost:3000</li>
+                    <li>Backend: http://localhost:3001</li>
                 </ul>
             </div>
             
             <div class="container">
-                <h2>⚙️ 环境变量配置</h2>
-                <p>必需的环境变量:</p>
+                <h2>Build Information</h2>
                 <ul>
-                    <li><strong>OPENAI_API_KEY:</strong> OpenAI API 密钥 (必需)</li>
-                    <li><strong>ELEVENLABS_API_KEY:</strong> ElevenLabs API 密钥 (可选，用于语音功能)</li>
-                    <li><strong>PEXELS_API_KEY:</strong> Pexels API 密钥 (可选，用于图片功能)</li>
-                </ul>
-            </div>
-            
-            <div class="container">
-                <h2>📝 部署信息</h2>
-                <ul>
-                    <li><strong>构建时间:</strong> $(date)</li>
-                    <li><strong>Commit SHA:</strong> COMMIT_PLACEHOLDER</li>
-                    <li><strong>分支:</strong> REF_PLACEHOLDER</li>
-                    <li><strong>触发事件:</strong> EVENT_PLACEHOLDER</li>
+                    <li>Repository: REPO_NAME</li>
+                    <li>Commit: COMMIT_SHA</li>
+                    <li>Branch: BRANCH_NAME</li>
                 </ul>
             </div>
         </body>
         </html>
         EOF
         
-        # Replace placeholders with actual values
-        sed -i "s/REPO_PLACEHOLDER/${REPO_NAME}/g" docs-build/index.html
-        sed -i "s/COMMIT_PLACEHOLDER/${COMMIT_SHA}/g" docs-build/index.html
-        sed -i "s/REF_PLACEHOLDER/${REF_NAME}/g" docs-build/index.html
-        sed -i "s/EVENT_PLACEHOLDER/${EVENT_NAME}/g" docs-build/index.html
+        # Replace placeholders
+        sed -i "s/REPO_NAME/${{ github.repository }}/g" docs-build/index.html
+        sed -i "s/COMMIT_SHA/${{ github.sha }}/g" docs-build/index.html
+        sed -i "s/BRANCH_NAME/${{ github.ref_name }}/g" docs-build/index.html
 
     - name: Upload Pages artifact
       uses: actions/upload-pages-artifact@v3
