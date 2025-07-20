@@ -37,7 +37,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '20'
         cache: 'npm'
         cache-dependency-path: |
           backend/package-lock.json
@@ -46,12 +46,14 @@ jobs:
     - name: Install backend dependencies
       run: |
         cd backend
-        npm ci
+        rm -f package-lock.json
+        npm install
 
     - name: Install frontend dependencies
       run: |
         cd frontend
-        npm ci
+        rm -f package-lock.json
+        npm install
 
     - name: Lint backend
       run: |
