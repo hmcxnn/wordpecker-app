@@ -259,8 +259,14 @@ jobs:
       run: |
         mkdir -p docs-build
         
-        # Create deployment documentation with proper variable substitution
-        cat > docs-build/index.html << EOF
+        # Set variables for easier template substitution
+        REPO_NAME="${{ github.repository }}"
+        COMMIT_SHA="${{ github.sha }}"
+        REF_NAME="${{ github.ref_name }}"
+        EVENT_NAME="${{ github.event_name }}"
+        
+        # Create deployment documentation
+        cat > docs-build/index.html << 'EOF'
         <!DOCTYPE html>
         <html>
         <head>
@@ -283,52 +289,52 @@ jobs:
                 <h2>📦 容器镜像</h2>
                 <p>最新构建的镜像已推送到 GitHub Container Registry:</p>
                 <ul>
-                    <li><code>ghcr.io/${{ github.repository }}-backend:latest</code></li>
-                    <li><code>ghcr.io/${{ github.repository }}-frontend:latest</code></li>
-                    <li><code>ghcr.io/${{ github.repository }}-full:latest</code></li>
+                    <li><code>ghcr.io/REPO_PLACEHOLDER-backend:latest</code></li>
+                    <li><code>ghcr.io/REPO_PLACEHOLDER-frontend:latest</code></li>
+                    <li><code>ghcr.io/REPO_PLACEHOLDER-full:latest</code></li>
                 </ul>
-                <span class="status success">BUILD ID: ${{ github.sha }}</span>
-                <span class="status info">DATE: \$(date)</span>
+                <span class="status success">BUILD ID: COMMIT_PLACEHOLDER</span>
+                <span class="status info">DATE: $(date)</span>
             </div>
             
             <div class="container">
                 <h2>🚀 快速部署</h2>
                 <h3>方式1: 使用独立容器</h3>
                 <pre><code># 拉取镜像
-docker pull ghcr.io/${{ github.repository }}-backend:latest
-docker pull ghcr.io/${{ github.repository }}-frontend:latest
+docker pull ghcr.io/REPO_PLACEHOLDER-backend:latest
+docker pull ghcr.io/REPO_PLACEHOLDER-frontend:latest
 
 # 创建网络
 docker network create wordpecker-net
 
 # 启动 MongoDB
-docker run -d --name wordpecker-mongo \\
-  --network wordpecker-net \\
-  -e MONGO_INITDB_ROOT_USERNAME=admin \\
-  -e MONGO_INITDB_ROOT_PASSWORD=password \\
-  -e MONGO_INITDB_DATABASE=wordpecker \\
-  -p 27017:27017 \\
+docker run -d --name wordpecker-mongo \
+  --network wordpecker-net \
+  -e MONGO_INITDB_ROOT_USERNAME=admin \
+  -e MONGO_INITDB_ROOT_PASSWORD=password \
+  -e MONGO_INITDB_DATABASE=wordpecker \
+  -p 27017:27017 \
   mongo:7.0
 
 # 启动后端 (需要设置环境变量)
-docker run -d --name wordpecker-backend \\
-  --network wordpecker-net \\
-  -e NODE_ENV=production \\
-  -e MONGODB_URL=mongodb://admin:password@wordpecker-mongo:27017/wordpecker?authSource=admin \\
-  -e OPENAI_API_KEY=your_openai_api_key \\
-  -p 3001:3000 \\
-  ghcr.io/${{ github.repository }}-backend:latest
+docker run -d --name wordpecker-backend \
+  --network wordpecker-net \
+  -e NODE_ENV=production \
+  -e MONGODB_URL=mongodb://admin:password@wordpecker-mongo:27017/wordpecker?authSource=admin \
+  -e OPENAI_API_KEY=your_openai_api_key \
+  -p 3001:3000 \
+  ghcr.io/REPO_PLACEHOLDER-backend:latest
 
 # 启动前端
-docker run -d --name wordpecker-frontend \\
-  --network wordpecker-net \\
-  -e VITE_API_URL=http://localhost:3001 \\
-  -p 3000:3000 \\
-  ghcr.io/${{ github.repository }}-frontend:latest</code></pre>
+docker run -d --name wordpecker-frontend \
+  --network wordpecker-net \
+  -e VITE_API_URL=http://localhost:3001 \
+  -p 3000:3000 \
+  ghcr.io/REPO_PLACEHOLDER-frontend:latest</code></pre>
 
                 <h3>方式2: 使用 Docker Compose</h3>
                 <pre><code># 下载 docker-compose.yml
-curl -O https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/REPO_PLACEHOLDER/main/docker-compose.yml
 
 # 设置环境变量
 echo "OPENAI_API_KEY=your_openai_api_key" > .env
@@ -361,15 +367,21 @@ docker-compose up -d</code></pre>
             <div class="container">
                 <h2>📝 部署信息</h2>
                 <ul>
-                    <li><strong>构建时间:</strong> \$(date)</li>
-                    <li><strong>Commit SHA:</strong> ${{ github.sha }}</li>
-                    <li><strong>分支:</strong> ${{ github.ref_name }}</li>
-                    <li><strong>触发事件:</strong> ${{ github.event_name }}</li>
+                    <li><strong>构建时间:</strong> $(date)</li>
+                    <li><strong>Commit SHA:</strong> COMMIT_PLACEHOLDER</li>
+                    <li><strong>分支:</strong> REF_PLACEHOLDER</li>
+                    <li><strong>触发事件:</strong> EVENT_PLACEHOLDER</li>
                 </ul>
             </div>
         </body>
         </html>
         EOF
+        
+        # Replace placeholders with actual values
+        sed -i "s/REPO_PLACEHOLDER/${REPO_NAME}/g" docs-build/index.html
+        sed -i "s/COMMIT_PLACEHOLDER/${COMMIT_SHA}/g" docs-build/index.html
+        sed -i "s/REF_PLACEHOLDER/${REF_NAME}/g" docs-build/index.html
+        sed -i "s/EVENT_PLACEHOLDER/${EVENT_NAME}/g" docs-build/index.html
 
     - name: Upload Pages artifact
       uses: actions/upload-pages-artifact@v3
