@@ -1,0 +1,98 @@
+# Docker Compose for production deployment
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: wordpecker-mongodb-prod
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD:-password}
+      MONGO_INITDB_DATABASE: wordpecker
+    ports:
+      - "${MONGODB_PORT:-27017}:27017"
+    volumes:
+      - mongodb_data_prod:/data/db
+      - ./scripts/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    networks:
+      - wordpecker-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  backend:
+    image: ghcr.io/${GITHUB_REPOSITORY:-wordpecker/wordpecker-app}-backend:${IMAGE_TAG:-latest}
+    container_name: wordpecker-backend-prod
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MONGODB_URL=mongodb://admin:${MONGODB_PASSWORD:-password}@mongodb:27017/wordpecker?authSource=admin
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - PEXELS_API_KEY=${PEXELS_API_KEY}
+    ports:
+      - "${BACKEND_PORT:-3001}:3000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - wordpecker-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/lists"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  frontend:
+    image: ghcr.io/${GITHUB_REPOSITORY:-wordpecker/wordpecker-app}-frontend:${IMAGE_TAG:-latest}
+    container_name: wordpecker-frontend-prod
+    restart: unless-stopped
+    environment:
+      - VITE_API_URL=http://localhost:${BACKEND_PORT:-3001}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - wordpecker-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # 可选: 添加反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: wordpecker-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - wordpecker-network
+    profiles:
+      - "with-nginx"
+
+volumes:
+  mongodb_data_prod:
+    driver: local
+
+networks:
+  wordpecker-network:
+    driver: bridge

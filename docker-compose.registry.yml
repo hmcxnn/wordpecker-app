@@ -1,3 +1,4 @@
+# Modified version using GitHub Container Registry images
 version: '3.8'
 
 services:
@@ -7,7 +8,7 @@ services:
     restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD:-password}
       MONGO_INITDB_DATABASE: wordpecker
     ports:
       - "27017:27017"
@@ -24,19 +25,14 @@ services:
       start_period: 30s
 
   backend:
-    # Option 1: Use local build (for development)
-    # build:
-    #   context: ./backend
-    #   dockerfile: Dockerfile
-    
-    # Option 2: Use GitHub Container Registry image (for deployment)
+    # 使用 GitHub Container Registry 镜像而不是本地构建
     image: ghcr.io/${GITHUB_REPOSITORY:-username/wordpecker-app}-backend:${IMAGE_TAG:-latest}
     container_name: wordpecker-backend
     restart: unless-stopped
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - MONGODB_URL=mongodb://admin:password@mongodb:27017/wordpecker?authSource=admin
+      - MONGODB_URL=mongodb://admin:${MONGODB_PASSWORD:-password}@mongodb:27017/wordpecker?authSource=admin
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
@@ -50,12 +46,7 @@ services:
       - wordpecker-network
 
   frontend:
-    # Option 1: Use local build (for development)
-    # build:
-    #   context: ./frontend
-    #   dockerfile: Dockerfile
-    
-    # Option 2: Use GitHub Container Registry image (for deployment)
+    # 使用 GitHub Container Registry 镜像而不是本地构建
     image: ghcr.io/${GITHUB_REPOSITORY:-username/wordpecker-app}-frontend:${IMAGE_TAG:-latest}
     container_name: wordpecker-frontend
     restart: unless-stopped

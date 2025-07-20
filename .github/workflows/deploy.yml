@@ -1,0 +1,423 @@
+name: Build and Deploy to GitHub Container Registry
+
+on:
+  push:
+    branches: 
+      - main
+      - develop
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME_BACKEND: ${{ github.repository }}-backend
+  IMAGE_NAME_FRONTEND: ${{ github.repository }}-frontend
+  IMAGE_NAME_FULL: ${{ github.repository }}-full
+
+jobs:
+  # 代码质量检查
+  quality-check:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: |
+          backend/package-lock.json
+          frontend/package-lock.json
+
+    - name: Install backend dependencies
+      run: |
+        cd backend
+        npm ci
+
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm ci
+
+    - name: Lint backend
+      run: |
+        cd backend
+        npm run lint
+
+    - name: Lint frontend
+      run: |
+        cd frontend
+        npm run lint
+
+    - name: Test backend
+      run: |
+        cd backend
+        npm test
+
+    - name: Build backend
+      run: |
+        cd backend
+        npm run build
+
+    - name: Build frontend
+      run: |
+        cd frontend
+        npm run build
+
+  # 构建并推送镜像
+  build-and-push:
+    needs: quality-check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    strategy:
+      matrix:
+        component: [backend, frontend, full]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FULL }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=ref,event=tag
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=sha,prefix={{branch}}-,suffix=-{{date 'YYYYMMDD-HHmmss'}},enable={{is_default_branch}}
+
+    # Backend 镜像构建
+    - name: Build and push Backend image
+      if: matrix.component == 'backend'
+      uses: docker/build-push-action@v5
+      with:
+        context: ./backend
+        file: ./backend/Dockerfile
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:latest
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.ref_name }}
+        labels: |
+          org.opencontainers.image.title=WordPecker Backend
+          org.opencontainers.image.description=WordPecker language learning app backend
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          org.opencontainers.image.revision=${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+    # Frontend 镜像构建
+    - name: Build and push Frontend image
+      if: matrix.component == 'frontend'
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        file: ./frontend/Dockerfile
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:latest
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.ref_name }}
+        labels: |
+          org.opencontainers.image.title=WordPecker Frontend
+          org.opencontainers.image.description=WordPecker language learning app frontend
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          org.opencontainers.image.revision=${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+    # 完整应用镜像构建 (使用 docker-compose)
+    - name: Build and push Full application image
+      if: matrix.component == 'full'
+      run: |
+        # 创建完整应用的 Dockerfile
+        cat > Dockerfile.full << EOF
+        FROM docker/compose:latest
+        
+        # 安装必要工具
+        RUN apk add --no-cache curl jq
+        
+        # 复制应用文件
+        COPY . /app
+        WORKDIR /app
+        
+        # 设置启动脚本
+        COPY scripts/start-full.sh /start.sh
+        RUN chmod +x /start.sh
+        
+        EXPOSE 3000 3001 27017
+        
+        CMD ["/start.sh"]
+        EOF
+        
+        # 创建启动脚本
+        mkdir -p scripts
+        cat > scripts/start-full.sh << 'EOF'
+        #!/bin/sh
+        echo "Starting WordPecker Full Application..."
+        
+        # 等待 Docker daemon 就绪
+        while ! docker info >/dev/null 2>&1; do
+          echo "Waiting for Docker daemon..."
+          sleep 2
+        done
+        
+        # 启动服务
+        docker-compose up --build
+        EOF
+        
+        # 构建并推送完整镜像
+        docker build -f Dockerfile.full -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FULL }}:latest .
+        docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FULL }}:latest ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FULL }}:${{ github.sha }}
+        docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FULL }}:latest ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FULL }}:${{ github.ref_name }}
+        
+        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FULL }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FULL }}:${{ github.sha }}
+        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FULL }}:${{ github.ref_name }}
+
+    # 生成安全报告和构建证明
+    - name: Generate SBOM and security scan
+      if: matrix.component != 'full'
+      run: |
+        # 生成软件清单 (SBOM)
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          -v $(pwd):/workspace \
+          anchore/syft:latest \
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:latest \
+          -o spdx-json=backend-sbom.json || true
+          
+        # 安全扫描
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          -v $(pwd):/workspace \
+          anchore/grype:latest \
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:latest \
+          -o json --file backend-vulnerabilities.json || true
+
+    - name: Upload SBOM and security reports
+      if: matrix.component != 'full'
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-reports-${{ matrix.component }}
+        path: |
+          *-sbom.json
+          *-vulnerabilities.json
+
+  # 部署到 GitHub Pages (文档和演示)
+  deploy-docs:
+    if: github.ref == 'refs/heads/main'
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Pages
+      uses: actions/configure-pages@v4
+
+    - name: Generate deployment documentation
+      run: |
+        mkdir -p docs-build
+        
+        cat > docs-build/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>WordPecker App - Deployment Guide</title>
+            <meta charset="utf-8">
+            <style>
+                body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }
+                .container { background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; }
+                code { background: #eee; padding: 2px 4px; border-radius: 3px; }
+                pre { background: #333; color: #fff; padding: 15px; border-radius: 5px; overflow-x: auto; }
+                .status { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+                .success { background: #4caf50; color: white; }
+                .info { background: #2196f3; color: white; }
+            </style>
+        </head>
+        <body>
+            <h1>🎯 WordPecker App - 部署指南</h1>
+            
+            <div class="container">
+                <h2>📦 容器镜像</h2>
+                <p>最新构建的镜像已推送到 GitHub Container Registry:</p>
+                <ul>
+                    <li><code>ghcr.io/${{ github.repository }}-backend:latest</code></li>
+                    <li><code>ghcr.io/${{ github.repository }}-frontend:latest</code></li>
+                    <li><code>ghcr.io/${{ github.repository }}-full:latest</code></li>
+                </ul>
+                <span class="status success">BUILD ID: ${{ github.sha }}</span>
+                <span class="status info">DATE: $(date)</span>
+            </div>
+            
+            <div class="container">
+                <h2>🚀 快速部署</h2>
+                <h3>方式1: 使用独立容器</h3>
+                <pre><code># 拉取镜像
+docker pull ghcr.io/${{ github.repository }}-backend:latest
+docker pull ghcr.io/${{ github.repository }}-frontend:latest
+
+# 创建网络
+docker network create wordpecker-net
+
+# 启动 MongoDB
+docker run -d --name wordpecker-mongo \
+  --network wordpecker-net \
+  -e MONGO_INITDB_ROOT_USERNAME=admin \
+  -e MONGO_INITDB_ROOT_PASSWORD=password \
+  -e MONGO_INITDB_DATABASE=wordpecker \
+  -p 27017:27017 \
+  mongo:7.0
+
+# 启动后端 (需要设置环境变量)
+docker run -d --name wordpecker-backend \
+  --network wordpecker-net \
+  -e NODE_ENV=production \
+  -e MONGODB_URL=mongodb://admin:password@wordpecker-mongo:27017/wordpecker?authSource=admin \
+  -e OPENAI_API_KEY=your_openai_api_key \
+  -p 3001:3000 \
+  ghcr.io/${{ github.repository }}-backend:latest
+
+# 启动前端
+docker run -d --name wordpecker-frontend \
+  --network wordpecker-net \
+  -e VITE_API_URL=http://localhost:3001 \
+  -p 3000:3000 \
+  ghcr.io/${{ github.repository }}-frontend:latest</code></pre>
+
+                <h3>方式2: 使用 Docker Compose</h3>
+                <pre><code># 下载 docker-compose.yml
+curl -O https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml
+
+# 设置环境变量
+echo "OPENAI_API_KEY=your_openai_api_key" > .env
+echo "ELEVENLABS_API_KEY=your_elevenlabs_api_key" >> .env
+echo "PEXELS_API_KEY=your_pexels_api_key" >> .env
+
+# 启动应用
+docker-compose up -d</code></pre>
+            </div>
+            
+            <div class="container">
+                <h2>🌐 访问应用</h2>
+                <ul>
+                    <li><strong>前端应用:</strong> <a href="http://localhost:3000">http://localhost:3000</a></li>
+                    <li><strong>后端 API:</strong> <a href="http://localhost:3001">http://localhost:3001</a></li>
+                    <li><strong>MongoDB:</strong> localhost:27017 (admin/password)</li>
+                </ul>
+            </div>
+            
+            <div class="container">
+                <h2>⚙️ 环境变量配置</h2>
+                <p>必需的环境变量:</p>
+                <ul>
+                    <li><strong>OPENAI_API_KEY:</strong> OpenAI API 密钥 (必需)</li>
+                    <li><strong>ELEVENLABS_API_KEY:</strong> ElevenLabs API 密钥 (可选，用于语音功能)</li>
+                    <li><strong>PEXELS_API_KEY:</strong> Pexels API 密钥 (可选，用于图片功能)</li>
+                </ul>
+            </div>
+            
+            <div class="container">
+                <h2>📝 部署信息</h2>
+                <ul>
+                    <li><strong>构建时间:</strong> $(date)</li>
+                    <li><strong>Commit SHA:</strong> ${{ github.sha }}</li>
+                    <li><strong>分支:</strong> ${{ github.ref_name }}</li>
+                    <li><strong>触发事件:</strong> ${{ github.event_name }}</li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        EOF
+
+    - name: Upload Pages artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: docs-build
+
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
+
+  # 通知和报告
+  notification:
+    if: always()
+    needs: [quality-check, build-and-push, deploy-docs]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Create deployment summary
+      run: |
+        echo "## 🚀 WordPecker App 部署完成" >> $GITHUB_STEP_SUMMARY
+        echo "### 构建信息" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit SHA:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **分支:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **触发事件:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **构建时间:** $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🏗️ 构建的镜像" >> $GITHUB_STEP_SUMMARY
+        echo "- \`ghcr.io/${{ github.repository }}-backend:latest\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`ghcr.io/${{ github.repository }}-frontend:latest\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`ghcr.io/${{ github.repository }}-full:latest\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🌐 部署地址" >> $GITHUB_STEP_SUMMARY
+        echo "- **部署文档:** https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **容器镜像:** https://github.com/${{ github.repository }}/pkgs/container" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📋 快速启动" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "# 下载配置文件" >> $GITHUB_STEP_SUMMARY
+        echo "curl -O https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "# 设置环境变量" >> $GITHUB_STEP_SUMMARY
+        echo "echo 'OPENAI_API_KEY=your_openai_api_key' > .env" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "# 启动应用" >> $GITHUB_STEP_SUMMARY
+        echo "docker-compose up -d" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+    - name: Report status
+      if: failure()
+      run: |
+        echo "## ❌ 部署失败" >> $GITHUB_STEP_SUMMARY
+        echo "请检查构建日志并修复问题后重试。" >> $GITHUB_STEP_SUMMARY
