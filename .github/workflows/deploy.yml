@@ -240,11 +240,12 @@ jobs:
           *-sbom.json
           *-vulnerabilities.json
 
-  # 部署到 GitHub Pages (文档和演示)
+  # 部署到 GitHub Pages (文档和演示) - 可选
   deploy-docs:
     if: github.ref == 'refs/heads/main'
     needs: build-and-push
     runs-on: ubuntu-latest
+    continue-on-error: true  # 允许 Pages 部署失败而不影响主要构建
     permissions:
       contents: read
       pages: write
@@ -256,6 +257,7 @@ jobs:
 
     - name: Setup Pages
       uses: actions/configure-pages@v4
+      continue-on-error: true  # 如果 Pages 未启用，继续执行
 
     - name: Create deployment documentation
       run: |
@@ -265,21 +267,39 @@ jobs:
         echo '<p>Repository: ${{ github.repository }}</p>' >> docs-build/index.html
         echo '<p>Commit: ${{ github.sha }}</p>' >> docs-build/index.html
         echo '<p>Images available at: ghcr.io/${{ github.repository }}-backend:latest</p>' >> docs-build/index.html
+        echo '<h2>快速启动</h2>' >> docs-build/index.html
+        echo '<pre><code>' >> docs-build/index.html
+        echo '# 使用发布的镜像启动应用' >> docs-build/index.html
+        echo 'docker run -d -p 3001:3000 ghcr.io/${{ github.repository }}-backend:latest' >> docs-build/index.html
+        echo 'docker run -d -p 3000:3000 ghcr.io/${{ github.repository }}-frontend:latest' >> docs-build/index.html
+        echo '</code></pre>' >> docs-build/index.html
         echo '</body></html>' >> docs-build/index.html
 
     - name: Upload Pages artifact
       uses: actions/upload-pages-artifact@v3
       with:
         path: docs-build
+      continue-on-error: true  # 如果上传失败，继续执行
 
     - name: Deploy to GitHub Pages
       id: deployment
       uses: actions/deploy-pages@v4
+      continue-on-error: true  # 如果部署失败，继续执行
+
+    - name: Pages deployment status
+      run: |
+        if [ "${{ steps.deployment.outcome }}" == "success" ]; then
+          echo "✅ GitHub Pages 部署成功"
+          echo "📄 文档地址: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+        else
+          echo "⚠️ GitHub Pages 部署跳过或失败"
+          echo "💡 如需启用 Pages，请在仓库设置中启用 GitHub Pages 并选择 'GitHub Actions' 作为源"
+        fi
 
   # 通知和报告
   notification:
     if: always()
-    needs: [quality-check, build-and-push, deploy-docs]
+    needs: [quality-check, build-and-push]  # 移除对 deploy-docs 的依赖
     runs-on: ubuntu-latest
     
     steps:
@@ -298,8 +318,8 @@ jobs:
         echo "- \`ghcr.io/${{ github.repository }}-full:latest\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🌐 部署地址" >> $GITHUB_STEP_SUMMARY
-        echo "- **部署文档:** https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}" >> $GITHUB_STEP_SUMMARY
         echo "- **容器镜像:** https://github.com/${{ github.repository }}/pkgs/container" >> $GITHUB_STEP_SUMMARY
+        echo "- **注意:** 如需启用 GitHub Pages 文档，请在仓库设置中启用并选择 'GitHub Actions' 作为源" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 📋 快速启动" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
