@@ -255,60 +255,15 @@ jobs:
     - name: Setup Pages
       uses: actions/configure-pages@v4
 
-    - name: Generate deployment documentation
+    - name: Create deployment documentation
       run: |
         mkdir -p docs-build
-        
-        # Create a simple deployment guide
-        cat > docs-build/index.html << 'EOF'
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>WordPecker App - Deployment Guide</title>
-            <meta charset="utf-8">
-            <style>
-                body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }
-                .container { background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; }
-                code { background: #eee; padding: 2px 4px; border-radius: 3px; }
-                pre { background: #333; color: #fff; padding: 15px; border-radius: 5px; overflow-x: auto; }
-            </style>
-        </head>
-        <body>
-            <h1>WordPecker App - Deployment Guide</h1>
-            
-            <div class="container">
-                <h2>Quick Start</h2>
-                <p>The application has been built and pushed to GitHub Container Registry.</p>
-                
-                <h3>Using Docker Compose</h3>
-                <pre><code>curl -O https://raw.githubusercontent.com/REPO_NAME/main/docker-compose.prod.yml
-echo "GITHUB_REPOSITORY=REPO_NAME" > .env
-echo "OPENAI_API_KEY=your_key" >> .env
-docker-compose -f docker-compose.prod.yml up -d</code></pre>
-                
-                <h3>Access Points</h3>
-                <ul>
-                    <li>Frontend: http://localhost:3000</li>
-                    <li>Backend: http://localhost:3001</li>
-                </ul>
-            </div>
-            
-            <div class="container">
-                <h2>Build Information</h2>
-                <ul>
-                    <li>Repository: REPO_NAME</li>
-                    <li>Commit: COMMIT_SHA</li>
-                    <li>Branch: BRANCH_NAME</li>
-                </ul>
-            </div>
-        </body>
-        </html>
-        EOF
-        
-        # Replace placeholders
-        sed -i "s/REPO_NAME/${{ github.repository }}/g" docs-build/index.html
-        sed -i "s/COMMIT_SHA/${{ github.sha }}/g" docs-build/index.html
-        sed -i "s/BRANCH_NAME/${{ github.ref_name }}/g" docs-build/index.html
+        echo '<html><head><title>WordPecker App</title></head><body>' > docs-build/index.html
+        echo '<h1>WordPecker App - Deployment Guide</h1>' >> docs-build/index.html
+        echo '<p>Repository: ${{ github.repository }}</p>' >> docs-build/index.html
+        echo '<p>Commit: ${{ github.sha }}</p>' >> docs-build/index.html
+        echo '<p>Images available at: ghcr.io/${{ github.repository }}-backend:latest</p>' >> docs-build/index.html
+        echo '</body></html>' >> docs-build/index.html
 
     - name: Upload Pages artifact
       uses: actions/upload-pages-artifact@v3
