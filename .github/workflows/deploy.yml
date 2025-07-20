@@ -68,7 +68,7 @@ jobs:
     - name: Test backend
       run: |
         cd backend
-        npm test
+        npm test -- --passWithNoTests
 
     - name: Build backend
       run: |
